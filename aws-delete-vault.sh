@@ -1,5 +1,7 @@
 #!/bin/bash
 
+#constant defining file location of valid AWS vault names
+#if this doesn't exist, the script will generate it
 VAULT_LIST=./aws-vaults.txt
 
 ######################################################
@@ -18,7 +20,10 @@ Description: For given vaultname, check if it is a valid vault name based on
     job and wait for it to complete.
 
     If --skip-inventory is used, attempt to use an existing inventory file like
-    vaultname-archiveids.txt or if not found, then print error and exit.
+    vaultname-should-be-empty.json
+    vaultname.json
+    vaultname-archiveids.txt
+    or if noen are found, then print error and exit.
 
     Use inventory file containing list of archive IDs to delete each archiveid
     from the vault, one at a time.
@@ -27,6 +32,10 @@ Description: For given vaultname, check if it is a valid vault name based on
     return empty. Print the contents for verification.
 
     Once it is verified empty, run the delete command on the given vaultname
+
+    If the second inventory job returned non-empty results, then you can re-run
+    this script with the --skip-inventory option and it will try to re-use the
+    inventory results in the vaultname-should-be-empty.json file.
 
 Options:
   -h|--help          Print this usage and exit
@@ -69,13 +78,26 @@ grep -q "$vault_name" $VAULT_LIST || { echo "ERROR: invalid vault_name"; exit 1;
 ######################################################
 echo "working on vault: $vault_name"
 
+#check if we are skipping the inventory job step to use an existing file
 if [ $SKIP_INVENTORY -eq 1 ]; then
-  if [ -f ${vault_name}-archiveids.txt ]; then
-    echo "skipping inventory job, using existing file"
+  #prefer using the vault_name-should-be-empty.json if it exists, since that
+  #means the vault has already been worked on and this file would list any
+  #left over archive IDs
+  if [ -f ${vault_name}-should-be-empty.json ]; then
+    sed -e 's/\"ArchiveList\":\[//' -e 's/,/\n/g' ${vault_name}-should-be-empty.json | awk -F\" '/ArchiveId/ {print $4}' > ${vault_name}-archiveids.txt
+    echo "skipping inventory job, using existing file: ${vault_name}-should-be-empty.json"
+  #if that doesn't exist, do we have a json output?
+  elif [ -f ${vault_name}.json ]; then
+    sed -e 's/\"ArchiveList\":\[//' -e 's/,/\n/g' ${vault_name}.json | awk -F\" '/ArchiveId/ {print $4}' > ${vault_name}-archiveids.txt
+    echo "skipping inventory job, using existing file: ${vault_name}.json"
+  #or do we already have the plain text output that we need?
+  elif [ -f ${vault_name}-archiveids.txt ]; then
+    echo "skipping inventory job, using existing file: ${vault_name}-archiveids.txt"
   else
     echo "ERROR: no existing inventory file found like this"
     echo "${vault_name}-archiveids.txt"
     echo "Run this again without the --skip-inventory"
+    exit 1
   fi
 else
   #run an inventory job on this vault to get the archive IDs
@@ -90,9 +112,9 @@ else
     echo "waited $((minutes+=5)) minutes"
   done
   #get the inventory job results
-  aws glacier get-job-output --account-id - --vault-name $vault_name --job-id $inventory_jobid ${vault_name}.json
+  aws glacier get-job-output --account-id - --vault-name $vault_name --job-id \"$inventory_jobid\" ${vault_name}.json
 
-  #clean up the job results so we have just the archive IDs
+  #clean up the job results so we have just the archive IDs in plaintext
   sed -e 's/\"ArchiveList\":\[//' -e 's/,/\n/g' $vault_name.json | awk -F\" '/ArchiveId/ {print $4}' > ${vault_name}-archiveids.txt
   echo "done generating inventory of archive IDs for vault $vault_name"
 fi

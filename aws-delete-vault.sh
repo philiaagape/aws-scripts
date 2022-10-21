@@ -154,7 +154,11 @@ echo "printing the contents of the file now:"
 cat ${vault_name}-should-be-empty.json
 read -p "is the above file empty so we can proceed? [Y|n] (Ctrl-C to quit, default is yes): " yes_or_no
 
-[ "$yes_or_no" = "n" ] && exit
+if [ "$yes_or_no" = "n" ]; then
+  echo "You said no. Please re-run this script with the --skip-inventory option to attempt to delete"
+  echo "any remaining archives."
+  exit
+fi
 
 ######################################################
 # yay! delete it!

@@ -126,7 +126,7 @@ echo "number of archive IDs to delete: $(cat ${vault_name}-archiveids.txt | wc -
 ######################################################
 cat ${vault_name}-archiveids.txt | while read theid; do 
   #print the number of the current archive ID on screen
-  echo -n "$(tput cup $(tput lines) 0)$(grep -n "$theid" ${vault_name}-archiveids.txt | awk -F: '{print $1}')" >&2
+  echo -n "$(tput cup $(tput lines) 0)$(grep -n \"$theid\" ${vault_name}-archiveids.txt | awk -F: '{print $1}')" >&2
   aws glacier delete-archive --account-id - --vault-name $vault_name --archive-id \"$theid\"
 done
 

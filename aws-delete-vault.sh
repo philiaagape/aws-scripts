@@ -84,22 +84,19 @@ if [ $SKIP_INVENTORY -eq 1 ]; then
   #means the vault has already been worked on and this file would list any
   #left over archive IDs
   if [ -f ${vault_name}-should-be-empty.json ]; then
-    #convert the json to a plaintext list of just the ArchiveIds
+    echo "skipping inventory job, converting existing file: ${vault_name}-should-be-empty.json to ${vault_name}-archiveids.txt"
     cat ${vault_name}-should-be-empty.json | sed -e 's/^.*\"ArchiveList\":\[//' -e 's/,{/\n{/g' | sed -e 's/^[^:]*:\"//' -e 's/\".*$//' > ${vault_name}-archiveids.txt
     echo -n -e "\n" >> ${vault_name}-archiveids.txt
-    echo "skipping inventory job, using existing file: ${vault_name}-should-be-empty.json"
   #if that doesn't exist, do we have a json output?
   elif [ -f ${vault_name}.json ]; then
-    #convert the json to a plaintext list of just the ArchiveIds
+    echo "skipping inventory job, converting existing file: ${vault_name}.json to ${vault_name}-archiveids.txt"
     cat ${vault_name}.json | sed -e 's/^.*\"ArchiveList\":\[//' -e 's/,{/\n{/g' | sed -e 's/^[^:]*:\"//' -e 's/\".*$//' > ${vault_name}-archiveids.txt
     echo -n -e "\n" >> ${vault_name}-archiveids.txt
-    echo "skipping inventory job, using existing file: ${vault_name}.json"
   #or do we already have the plain text output that we need?
   elif [ -f ${vault_name}-archiveids.txt ]; then
     echo "skipping inventory job, using existing file: ${vault_name}-archiveids.txt"
   else
-    echo "ERROR: no existing inventory file found like this"
-    echo "${vault_name}-archiveids.txt"
+    echo "ERROR: no existing inventory file found"
     echo "Run this again without the --skip-inventory"
     exit 1
   fi

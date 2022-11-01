@@ -84,18 +84,19 @@ if [ $SKIP_INVENTORY -eq 1 ]; then
   #means the vault has already been worked on and this file would list any
   #left over archive IDs
   if [ -f ${vault_name}-should-be-empty.json ]; then
-    sed -e 's/\"ArchiveList\":\[//' -e 's/,/\n/g' ${vault_name}-should-be-empty.json | awk -F\" '/ArchiveId/ {print $4}' > ${vault_name}-archiveids.txt
-    echo "skipping inventory job, using existing file: ${vault_name}-should-be-empty.json"
+    echo "skipping inventory job, converting existing file: ${vault_name}-should-be-empty.json to ${vault_name}-archiveids.txt"
+    cat ${vault_name}-should-be-empty.json | sed -e 's/^.*\"ArchiveList\":\[//' -e 's/,{/\n{/g' | sed -e 's/^[^:]*:\"//' -e 's/\".*$//' > ${vault_name}-archiveids.txt
+    echo -n -e "\n" >> ${vault_name}-archiveids.txt
   #if that doesn't exist, do we have a json output?
   elif [ -f ${vault_name}.json ]; then
-    sed -e 's/\"ArchiveList\":\[//' -e 's/,/\n/g' ${vault_name}.json | awk -F\" '/ArchiveId/ {print $4}' > ${vault_name}-archiveids.txt
-    echo "skipping inventory job, using existing file: ${vault_name}.json"
+    echo "skipping inventory job, converting existing file: ${vault_name}.json to ${vault_name}-archiveids.txt"
+    cat ${vault_name}.json | sed -e 's/^.*\"ArchiveList\":\[//' -e 's/,{/\n{/g' | sed -e 's/^[^:]*:\"//' -e 's/\".*$//' > ${vault_name}-archiveids.txt
+    echo -n -e "\n" >> ${vault_name}-archiveids.txt
   #or do we already have the plain text output that we need?
   elif [ -f ${vault_name}-archiveids.txt ]; then
     echo "skipping inventory job, using existing file: ${vault_name}-archiveids.txt"
   else
-    echo "ERROR: no existing inventory file found like this"
-    echo "${vault_name}-archiveids.txt"
+    echo "ERROR: no existing inventory file found"
     echo "Run this again without the --skip-inventory"
     exit 1
   fi
@@ -104,29 +105,34 @@ else
   aws glacier initiate-job --account-id - --vault-name $vault_name --job-parameters '{"Type": "inventory-retrieval"}' > ${vault_name}-inventory-jobid
   inventory_jobid=$(awk -F\" '/jobId/ {print $4}' ${vault_name}-inventory-jobid)
   #check if it is done... this takes several hours, so just keep checking once every 5 minutes
-  is_done=$(aws glacier describe-job --account-id - --vault-name $vault_name --job-id $inventory_jobid | awk '/Completed/ {print $NF}')
+  is_done=$(aws glacier describe-job --account-id - --vault-name $vault_name --job-id "$inventory_jobid" | awk '/Completed/ {print $NF}')
   minutes=0
   while [ "$is_done" = "false," ]; do 
     sleep 300
-    is_done=$(aws glacier describe-job --account-id - --vault-name $vault_name --job-id $inventory_jobid | awk '/Completed/ {print $NF}')
+    is_done=$(aws glacier describe-job --account-id - --vault-name $vault_name --job-id "$inventory_jobid" | awk '/Completed/ {print $NF}')
     echo "waited $((minutes+=5)) minutes"
   done
   #get the inventory job results
-  aws glacier get-job-output --account-id - --vault-name $vault_name --job-id \"$inventory_jobid\" ${vault_name}.json
+  aws glacier get-job-output --account-id - --vault-name $vault_name --job-id "$inventory_jobid" ${vault_name}.json
 
-  #clean up the job results so we have just the archive IDs in plaintext
-  sed -e 's/\"ArchiveList\":\[//' -e 's/,/\n/g' $vault_name.json | awk -F\" '/ArchiveId/ {print $4}' > ${vault_name}-archiveids.txt
+  #convert the json to a plaintext list of just the ArchiveIds
+#  sed -e 's/\"ArchiveList\":\[//' -e 's/,{/\n{/g' $vault_name.json | awk -F\" '/ArchiveId/ {print $4}' > ${vault_name}-archiveids.txt
+#  sed -e 's/^.*\"ArchiveList\":\[//' -e 's/,{/\n{/g' $vault_name.json | sed -e 's/^[^\:]*:\"//' -e 's/\".*$//' > ${vault_name}-archiveids.txt
+  cat ${vault_name}.json | sed -e 's/^.*\"ArchiveList\":\[//' -e 's/,{/\n{/g' | sed -e 's/^[^:]*:\"//' -e 's/\".*$//' > ${vault_name}-archiveids.txt
+  echo -n -e "\n" >> ${vault_name}-archiveids.txt
   echo "done generating inventory of archive IDs for vault $vault_name"
 fi
 
-echo "number of archive IDs to delete: $(cat ${vault_name}-archiveids.txt | wc -l)"
+num_archives=$(cat ${vault_name}-archiveids.txt | wc -l)
+current_num=0
+echo "number of archive IDs to delete: $num_archives"
 
 ######################################################
 # main work - delete the archives in the current vault
 ######################################################
 cat ${vault_name}-archiveids.txt | while read theid; do 
   #print the number of the current archive ID on screen
-  echo -n "$(tput cup $(tput lines) 0)$(grep -n \"$theid\" ${vault_name}-archiveids.txt | awk -F: '{print $1}')" >&2
+  echo -n "$(tput cup $(tput lines) 0)$((++current_num)) of $num_archives"
   aws glacier delete-archive --account-id - --vault-name $vault_name --archive-id \"$theid\"
 done
 
@@ -138,14 +144,14 @@ done
 echo "running another inventory job to verify that $vault_name is empty"
 aws glacier initiate-job --account-id - --vault-name $vault_name --job-parameters '{"Type": "inventory-retrieval"}' > ${vault_name}-inventory-jobid
 inventory_jobid=$(awk -F\" '/jobId/ {print $4}' ${vault_name}-inventory-jobid)
-is_done=$(aws glacier describe-job --account-id - --vault-name $vault_name --job-id $inventory_jobid | awk '/Completed/ {print $NF}')
+is_done=$(aws glacier describe-job --account-id - --vault-name $vault_name --job-id "$inventory_jobid" | awk '/Completed/ {print $NF}')
 minutes=0
 while [ "$is_done" = "false," ]; do 
   sleep 300
-  is_done=$(aws glacier describe-job --account-id - --vault-name $vault_name --job-id $inventory_jobid | awk '/Completed/ {print $NF}')
+  is_done=$(aws glacier describe-job --account-id - --vault-name $vault_name --job-id "$inventory_jobid" | awk '/Completed/ {print $NF}')
   echo "waited $((minutes+=5)) minutes"
 done
-aws glacier get-job-output --account-id - --vault-name $vault_name --job-id $inventory_jobid ${vault_name}-should-be-empty.json
+aws glacier get-job-output --account-id - --vault-name $vault_name --job-id "$inventory_jobid" ${vault_name}-should-be-empty.json
 echo "inventory job done"
 echo ""
 
